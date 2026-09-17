@@ -1,260 +1,248 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
-from typing import List, Dict, Any
-from pydantic import BaseModel
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+from app import auth
 
-from app.database import engine, Base, get_db
-from app.models.all_models import Spot, ActiveParking, AuditLog, RateCard, VehicleType
-from app.services.parking_service import parse_messy_rate, calculate_fee
+app = FastAPI(title="ParkWise Management System")
 
-Base.metadata.create_all(bind=engine)
+# Include Auth & Search Router
+app.include_router(auth.router)
 
-app = FastAPI(title="Parking Lot Management System")
+@app.get("/", response_class=HTMLResponse)
+def serve_dashboard():
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>ParkWise | Parking Lot Management System</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+            :root {
+                --primary: #2563eb;
+                --primary-dark: #1d4ed8;
+                --bg: #f8fafc;
+                --card-bg: #ffffff;
+                --text-main: #0f172a;
+                --text-muted: #64748b;
+                --border: #e2e8f0;
+                --success: #15803d;
+                --success-bg: #dcfce7;
+                --warning: #b45309;
+                --warning-bg: #fef3c7;
+            }
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { font-family: 'Inter', sans-serif; background-color: var(--bg); color: var(--text-main); padding: 40px 20px; line-height: 1.5; }
+            .wrapper { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
 
-class RateImportSchema(BaseModel):
-    rates: Dict[str, Any]
+            /* Header & Landing Banner */
+            .banner { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: white; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+            .banner h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; }
+            .banner p.subtitle { color: #94a3b8; font-size: 1rem; margin-bottom: 24px; }
+            .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+            .info-card { background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 16px; }
+            .info-card h4 { color: #38bdf8; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+            .info-card p { font-size: 0.9rem; color: #cbd5e1; }
 
-class CheckInSchema(BaseModel):
-    license_plate: str
-    vehicle_type: VehicleType
+            /* Standard Section Cards */
+            .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+            .card-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 16px; color: var(--text-main); }
 
-class CheckOutSchema(BaseModel):
-    license_plate: str
+            /* Form Elements */
+            .form-inline { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+            input, select { padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+            input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+            .btn { background: var(--primary); color: white; padding: 10px 20px; border: none; border-radius: 8px; font-weight: 500; font-size: 0.9rem; cursor: pointer; transition: background 0.2s; }
+            .btn:hover { background: var(--primary-dark); }
+            .btn-outline { background: transparent; color: var(--text-main); border: 1px solid var(--border); }
+            .btn-outline:hover { background: #f1f5f9; }
+            .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-class TransferSchema(BaseModel):
-    old_license_plate: str
-    new_license_plate: str
+            /* Table Styling */
+            .table-container { overflow-x: auto; margin-top: 16px; }
+            table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
+            th { background-color: #f8fafc; color: var(--text-muted); font-weight: 600; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+            td { padding: 16px; border-bottom: 1px solid var(--border); }
+            tr:hover td { background-color: #f8fafc; }
 
-class ClockSchema(BaseModel):
-    hours_passed: float = 24.0
+            /* Status Badges */
+            .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+            .badge-active { background: var(--success-bg); color: var(--success); }
+            .badge-checkout { background: var(--warning-bg); color: var(--warning); }
 
-DEFAULT_RATES = {
-    VehicleType.COMPACT: 10.0,
-    VehicleType.STANDARD: 15.0,
-    VehicleType.EV: 20.0
-}
+            /* Pagination Bar */
+            .pagination-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+            .status-msg { margin-top: 12px; font-size: 0.875rem; font-weight: 500; }
+        </style>
+    </head>
+    <body>
+        <div class="wrapper">
+            <!-- LANDING PAGE BANNER -->
+            <header class="banner">
+                <h1>ParkWise Manager</h1>
+                <p class="subtitle">Next-Generation Parking Lot Operations & Valet Control System</p>
+                <div class="grid-3">
+                    <div class="info-card">
+                        <h4>What It Is</h4>
+                        <p>Full-stack parking platform with dynamic rate parsing, automated check-in/out, and valet plate transfers.</p>
+                    </div>
+                    <div class="info-card">
+                        <h4>Target Audience</h4>
+                        <p>Commercial garage operators, event venues, residential complexes, and valet services.</p>
+                    </div>
+                    <div class="info-card">
+                        <h4>How It Helps</h4>
+                        <p>Replaces manual logbooks with automated spot allocation, duration-based pricing, and live analytics.</p>
+                    </div>
+                </div>
+            </header>
 
-@app.on_event("startup")
-def startup_db_seed():
-    db = next(get_db())
-    if not db.query(RateCard).first():
-        for v_type, rate in DEFAULT_RATES.items():
-            db.add(RateCard(spot_type=v_type, hourly_rate=rate))
-        db.commit()
+            <!-- AUTHENTICATION CARD -->
+            <section class="card">
+                <h2 class="card-title">Operator Access</h2>
+                <div class="form-inline">
+                    <input id="username" placeholder="Enter username..." style="flex: 1; min-width: 180px;">
+                    <input id="password" type="password" placeholder="Enter password..." style="flex: 1; min-width: 180px;">
+                    <button class="btn" onclick="executeAuth('/auth/login')">Sign In</button>
+                    <button class="btn btn-outline" onclick="executeAuth('/auth/register')">Register Account</button>
+                </div>
+                <div id="authStatus" class="status-msg"></div>
+            </section>
 
-@app.post("/rates/import")
-def import_rate_card(payload: RateImportSchema, db: Session = Depends(get_db)):
-    updated_rates = {}
-    for spot_type_str, messy_val in payload.rates.items():
-        try:
-            v_type = VehicleType(spot_type_str.lower())
-            clean_rate = parse_messy_rate(messy_val)
-            
-            rate_obj = db.query(RateCard).filter(RateCard.spot_type == v_type).first()
-            if rate_obj:
-                rate_obj.hourly_rate = clean_rate
-            else:
-                rate_obj = RateCard(spot_type=v_type, hourly_rate=clean_rate)
-                db.add(rate_obj)
-            
-            updated_rates[v_type.value] = clean_rate
-        except ValueError:
-            continue
-            
-    db.commit()
-    return {"message": "Rate card imported and cleaned successfully", "cleaned_rates": updated_rates}
+            <!-- SEARCH, SORT, PAGINATION TABLE -->
+            <section class="card">
+                <h2 class="card-title">Live Parking Dashboard</h2>
+                <div class="form-inline" style="justify-content: space-between; margin-bottom: 16px;">
+                    <input id="searchInput" placeholder="🔍 Search license plate..." style="flex: 1; min-width: 220px;" oninput="fetchParkingData()">
+                    <div style="display: flex; gap: 8px;">
+                        <select id="sortSelect" onchange="fetchParkingData()">
+                            <option value="id">Sort by Spot ID</option>
+                            <option value="license_plate">Sort by License Plate</option>
+                        </select>
+                        <select id="orderSelect" onchange="fetchParkingData()">
+                            <option value="asc">Ascending</option>
+                            <option value="desc">Descending</option>
+                        </select>
+                    </div>
+                </div>
 
-@app.get("/rates")
-def get_rates(db: Session = Depends(get_db)):
-    rates = db.query(RateCard).all()
-    return {r.spot_type.value: r.hourly_rate for r in rates}
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Record ID</th>
+                                <th>License Plate</th>
+                                <th>Spot Allocation</th>
+                                <th>Session Status</th>
+                                <th>Fee Charged</th>
+                            </tr>
+                        </thead>
+                        <tbody id="parkingRows"></tbody>
+                    </table>
+                </div>
 
-@app.post("/spots/seed")
-def seed_spots(db: Session = Depends(get_db)):
-    if db.query(Spot).first():
-        return {"message": "Spots already initialized"}
-    
-    sample_spots = [
-        Spot(spot_id="L1-CMP-01", spot_type=VehicleType.COMPACT),
-        Spot(spot_id="L1-CMP-02", spot_type=VehicleType.COMPACT),
-        Spot(spot_id="L1-STD-01", spot_type=VehicleType.STANDARD),
-        Spot(spot_id="L1-STD-02", spot_type=VehicleType.STANDARD),
-        Spot(spot_id="L1-EV-01", spot_type=VehicleType.EV),
-        Spot(spot_id="L1-EV-02", spot_type=VehicleType.EV),
-    ]
-    db.add_all(sample_spots)
-    db.commit()
-    return {"message": "Garages seeded with sample spots", "total": len(sample_spots)}
+                <div class="pagination-bar">
+                    <button id="prevBtn" class="btn btn-outline" onclick="navigatePage(-1)">Previous</button>
+                    <span id="pageTracker" style="font-size: 0.875rem; color: var(--text-muted);">Page 1</span>
+                    <button id="nextBtn" class="btn btn-outline" onclick="navigatePage(1)">Next</button>
+                </div>
+            </section>
 
-@app.get("/spots")
-def list_spots(db: Session = Depends(get_db)):
-    return db.query(Spot).all()
+            <!-- ROADMAP FOOTER -->
+            <footer class="card">
+                <h2 class="card-title">Product Roadmap (Next 3 Planned Features)</h2>
+                <ul style="padding-left: 20px; display: flex; flex-direction: column; gap: 10px; color: var(--text-muted); font-size: 0.95rem;">
+                    <li><strong style="color: var(--text-main);">1. Automatic License Plate Recognition (ANPR):</strong> Integration with AI video cameras for automated gate barriers.</li>
+                    <li><strong style="color: var(--text-main);">2. Integrated Payment Gateway:</strong> Stripe API integration for instant QR-code mobile payments.</li>
+                    <li><strong style="color: var(--text-main);">3. Real-Time EV Charging Telemetry:</strong> Track kilowatt-hour draw and automated charging fee billing.</li>
+                </ul>
+            </footer>
+        </div>
 
-@app.post("/parkings/checkin")
-def check_in(payload: CheckInSchema, db: Session = Depends(get_db)):
-    plate = payload.license_plate.strip().upper()
-    
-    existing = db.query(ActiveParking).filter(ActiveParking.license_plate == plate).first()
-    if existing:
-        raise HTTPException(status_code=400, detail=f"Vehicle {plate} is already parked in spot {existing.spot_id}")
-    
-    free_spot = db.query(Spot).filter(
-        Spot.spot_type == payload.vehicle_type,
-        Spot.is_occupied == False
-    ).first()
-    
-    if not free_spot:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"No available {payload.vehicle_type.value.upper()} spots right now."
-        )
-    
-    free_spot.is_occupied = True
-    new_parking = ActiveParking(
-        license_plate=plate,
-        spot_id=free_spot.spot_id,
-        vehicle_type=payload.vehicle_type,
-        entry_time=datetime.utcnow()
-    )
-    db.add(new_parking)
-    db.commit()
-    
-    return {
-        "message": "Check-in successful",
-        "license_plate": plate,
-        "spot_id": free_spot.spot_id,
-        "entry_time": new_parking.entry_time
-    }
+        <script>
+            let currentPage = 1;
 
-@app.post("/parkings/checkout")
-def check_out(payload: CheckOutSchema, db: Session = Depends(get_db)):
-    plate = payload.license_plate.strip().upper()
-    active = db.query(ActiveParking).filter(ActiveParking.license_plate == plate).first()
-    
-    if not active:
-        raise HTTPException(status_code=404, detail=f"No active parking found for plate {plate}")
-    
-    exit_time = datetime.utcnow()
-    
-    rate_card = db.query(RateCard).filter(RateCard.spot_type == active.vehicle_type).first()
-    hourly_rate = rate_card.hourly_rate if rate_card else 10.0
-    
-    fee = calculate_fee(active.entry_time, exit_time, hourly_rate)
-    
-    spot = db.query(Spot).filter(Spot.spot_id == active.spot_id).first()
-    if spot:
-        spot.is_occupied = False
-        
-    audit = AuditLog(
-        license_plate=plate,
-        spot_id=active.spot_id,
-        entry_time=active.entry_time,
-        exit_time=exit_time,
-        fee_charged=fee,
-        note="Normal Check-out"
-    )
-    db.add(audit)
-    db.delete(active)
-    db.commit()
-    
-    return {
-        "message": "Check-out successful",
-        "license_plate": plate,
-        "spot_id": audit.spot_id,
-        "duration_hours": round((exit_time - active.entry_time).total_seconds() / 3600, 2),
-        "fee_charged": fee
-    }
+            async function executeAuth(endpoint) {
+                const u = document.getElementById('username').value;
+                const p = document.getElementById('password').value;
+                const statusEl = document.getElementById('authStatus');
 
-@app.post("/parkings/transfer")
-def transfer_parking(payload: TransferSchema, db: Session = Depends(get_db)):
-    old_plate = payload.old_license_plate.strip().upper()
-    new_plate = payload.new_license_plate.strip().upper()
-    
-    active = db.query(ActiveParking).filter(ActiveParking.license_plate == old_plate).first()
-    if not active:
-        raise HTTPException(status_code=404, detail=f"No active session found for plate {old_plate}")
-    
-    target_existing = db.query(ActiveParking).filter(ActiveParking.license_plate == new_plate).first()
-    if target_existing:
-        raise HTTPException(status_code=400, detail=f"Target plate {new_plate} already has an active session")
-    
-    new_active = ActiveParking(
-        license_plate=new_plate,
-        spot_id=active.spot_id,
-        vehicle_type=active.vehicle_type,
-        entry_time=active.entry_time
-    )
-    db.delete(active)
-    db.add(new_active)
-    db.commit()
-    
-    return {
-        "message": "Valet session transfer successful",
-        "old_license_plate": old_plate,
-        "new_license_plate": new_plate,
-        "spot_id": new_active.spot_id,
-        "entry_time": new_active.entry_time
-    }
+                if (!u || !p) {
+                    statusEl.style.color = 'var(--warning)';
+                    statusEl.innerText = 'Please enter both a username and password.';
+                    return;
+                }
 
-@app.post("/clock")
-def trigger_clock_job(payload: ClockSchema, db: Session = Depends(get_db)):
-    now = datetime.utcnow()
-    active_sessions = db.query(ActiveParking).all()
-    auto_closed_count = 0
-    closed_details = []
+                try {
+                    const res = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: u, password: p })
+                    });
+                    const data = await res.json();
 
-    for active in active_sessions:
-        elapsed_hours = (now - active.entry_time).total_seconds() / 3600
-        
-        if elapsed_hours >= 24.0:
-            rate_card = db.query(RateCard).filter(RateCard.spot_type == active.vehicle_type).first()
-            hourly_rate = rate_card.hourly_rate if rate_card else 10.0
-            
-            fee = calculate_fee(active.entry_time, now, hourly_rate)
-            
-            spot = db.query(Spot).filter(Spot.spot_id == active.spot_id).first()
-            if spot:
-                spot.is_occupied = False
-                
-            audit = AuditLog(
-                license_plate=active.license_plate,
-                spot_id=active.spot_id,
-                entry_time=active.entry_time,
-                exit_time=now,
-                fee_charged=fee,
-                note="Auto-closed via 24h clock job"
-            )
-            db.add(audit)
-            db.delete(active)
-            
-            auto_closed_count += 1
-            closed_details.append({
-                "license_plate": active.license_plate,
-                "spot_id": active.spot_id,
-                "fee_charged": fee
-            })
+                    if (res.ok) {
+                        statusEl.style.color = 'var(--success)';
+                        statusEl.innerText = data.message || 'Authenticated successfully!';
+                    } else {
+                        statusEl.style.color = 'var(--warning)';
+                        statusEl.innerText = data.detail || 'Authentication failed.';
+                    }
+                } catch (err) {
+                    statusEl.style.color = 'var(--warning)';
+                    statusEl.innerText = 'Unable to connect to server.';
+                }
+            }
 
-    db.commit()
-    return {
-        "message": f"Clock job processed. Auto-closed {auto_closed_count} session(s).",
-        "auto_closed_count": auto_closed_count,
-        "closed_details": closed_details
-    }
+            async function fetchParkingData() {
+                const query = document.getElementById('searchInput').value;
+                const sortBy = document.getElementById('sortSelect').value;
+                const order = document.getElementById('orderSelect').value;
 
-@app.get("/parkings/active")
-def list_active_parkings(db: Session = Depends(get_db)):
-    return db.query(ActiveParking).all()
+                try {
+                    const res = await fetch(`/parkings/search?query=${query}&sort_by=${sortBy}&order=${order}&page=${currentPage}&limit=5`);
+                    const data = await res.json();
 
-@app.get("/audit/logs")
-def list_audit_logs(db: Session = Depends(get_db)):
-    return db.query(AuditLog).all()
+                    const tbody = document.getElementById('parkingRows');
+                    tbody.innerHTML = '';
+
+                    if (!data.results || data.results.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">No active parking sessions found</td></tr>`;
+                    } else {
+                        data.results.forEach(item => {
+                            const badge = item.is_active 
+                                ? `<span class="badge badge-active">Active Session</span>`
+                                : `<span class="badge badge-checkout">Checked Out</span>`;
+                            tbody.innerHTML += `
+                                <tr>
+                                    <td>#${item.id}</td>
+                                    <td><strong>${item.license_plate}</strong></td>
+                                    <td>Spot #${item.spot_id}</td>
+                                    <td>${badge}</td>
+                                    <td>$${Number(item.fee_charged).toFixed(2)}</td>
+                                </tr>
+                            `;
+                        });
+                    }
+
+                    const totalPages = Math.ceil((data.total || 0) / 5) || 1;
+                    document.getElementById('pageTracker').innerText = `Page ${data.page || 1} of ${totalPages}`;
+                    document.getElementById('prevBtn').disabled = currentPage <= 1;
+                    document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+                } catch (err) {
+                    console.error("Error loading table data:", err);
+                }
+            }
+
+            function navigatePage(direction) {
+                currentPage = Math.max(1, currentPage + direction);
+                fetchParkingData();
+            }
+
+            // Initial Load
+            fetchParkingData();
+        </script>
+    </body>
+    </html>
+    """

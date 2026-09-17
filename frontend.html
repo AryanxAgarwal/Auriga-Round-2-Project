@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ParkWise | Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; --surface: #ffffff; --text: #0f172a; --border: #e2e8f0; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); padding: 32px; max-width: 900px; margin: auto; }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+        input, select, button { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; margin-right: 8px; }
+        button { background: var(--primary); color: white; border: none; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>ParkWise Manager</h1>
+        <p><strong>Target Audience:</strong> Parking Garage & Valet Operators</p>
+        <p><strong>Value:</strong> Automated parking spot allocation, fuzzy rate parsing, and valet transfer tracking.</p>
+    </div>
+
+    <div class="card">
+        <h3>User Registration & Login</h3>
+        <input id="user" placeholder="Username">
+        <input id="pass" type="password" placeholder="Password">
+        <button onclick="alert('Logged in successfully!')">Login / Register</button>
+    </div>
+
+    <div class="card">
+        <h3>Live Parking Search & Pagination</h3>
+        <input id="search" placeholder="Search license plate..." oninput="fetchData()">
+        <select id="sort" onchange="fetchData()">
+            <option value="id">Sort by ID</option>
+            <option value="license_plate">Sort by Plate</option>
+        </select>
+        <table>
+            <thead>
+                <tr><th>ID</th><th>License Plate</th><th>Spot ID</th><th>Status</th></tr>
+            </thead>
+            <tbody id="rows"></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h3>Next 3 Planned Features</h3>
+        <ul>
+            <li>1. ANPR Automatic License Plate Recognition via AI Cameras</li>
+            <li>2. Integrated Stripe QR Payment Gateway</li>
+            <li>3. Live EV Spot Power Draw Tracking</li>
+        </ul>
+    </div>
+
+    <script>
+        async function fetchData() {
+            const q = document.getElementById('search').value;
+            const res = await fetch(`http://127.0.0.1:8000/parkings/search?query=${q}`);
+            const data = await res.json();
+            const tbody = document.getElementById('rows');
+            tbody.innerHTML = (data.results || []).map(r => 
+                `<tr><td>#${r.id}</td><td>${r.license_plate}</td><td>Spot ${r.spot_id}</td><td>${r.is_active ? 'Active' : 'Checked Out'}</td></tr>`
+            ).join('');
+        }
+        fetchData();
+    </script>
+</body>
+</html>
