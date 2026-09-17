@@ -16,10 +16,15 @@ class User(Base):
 
 class Spot(Base):
     __tablename__ = "spots"
-    spot_id = Column(String, primary_key=True)  # e.g., 'L1-EV-01'
+    spot_id = Column(String, primary_key=True)
     spot_type = Column(Enum(VehicleType), nullable=False)
     is_occupied = Column(Boolean, default=False)
-    meta_info = Column(JSON, nullable=True)  # Flexible metadata for surprise requirements
+    meta_info = Column(JSON, nullable=True)
+
+class RateCard(Base):
+    __tablename__ = "rate_cards"
+    spot_type = Column(Enum(VehicleType), primary_key=True)
+    hourly_rate = Column(Float, nullable=False)
 
 class ActiveParking(Base):
     __tablename__ = "active_parkings"
@@ -36,3 +41,4 @@ class AuditLog(Base):
     entry_time = Column(DateTime, nullable=False)
     exit_time = Column(DateTime, nullable=False)
     fee_charged = Column(Float, nullable=False)
+    note = Column(String, nullable=True) # e.g. "Auto-closed via nightly clock job"
