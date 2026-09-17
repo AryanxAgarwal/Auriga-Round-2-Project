@@ -1,27 +1,27 @@
 import hashlib
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
 from app.database import get_db
-
-# Dynamically resolve the model class to prevent import crashes
-import app.models.all_models as models_module
-
-ModelClass = (
-    getattr(models_module, "ParkingRecord", None) or
-    getattr(models_module, "Parking", None) or
-    getattr(models_module, "ParkingLot", None) or
-    getattr(models_module, "Ticket", None) or
-    getattr(models_module, "Vehicle", None)
-)
+from app.models.all_models import Spot, ActiveParking, AuditLog, VehicleType
 
 router = APIRouter()
-
 USERS_DB = {}
 
+# Schemas
 class AuthSchema(BaseModel):
     username: str
     password: str
+
+class CheckInSchema(BaseModel):
+    license_plate: str
+    spot_id: str
+    vehicle_type: VehicleType = VehicleType.STANDARD
+
+class CheckOutSchema(BaseModel):
+    license_plate: str
 
 def hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
@@ -39,41 +39,99 @@ def login(data: AuthSchema):
         raise HTTPException(status_code=401, detail="Invalid username or password")
     return {"token": f"session-token-{data.username}", "username": data.username}
 
+@router.post("/parkings/checkin")
+def checkin_vehicle(data: CheckInSchema, db: Session = Depends(get_db)):
+    spot = db.query(Spot).filter(Spot.spot_id == data.spot_id).first()
+    if not spot:
+        spot = Spot(spot_id=data.spot_id, spot_type=data.vehicle_type, is_occupied=True)
+        db.add(spot)
+    elif spot.is_occupied:
+        raise HTTPException(status_code=400, detail=f"Spot #{data.spot_id} is already occupied.")
+    else:
+        spot.is_occupied = True
+
+    existing_parking = db.query(ActiveParking).filter(ActiveParking.license_plate == data.license_plate).first()
+    if existing_parking:
+        raise HTTPException(status_code=400, detail=f"Vehicle {data.license_plate} is already checked in.")
+
+    new_parking = ActiveParking(
+        license_plate=data.license_plate,
+        spot_id=data.spot_id,
+        vehicle_type=data.vehicle_type,
+        entry_time=datetime.utcnow()
+    )
+    db.add(new_parking)
+    db.commit()
+
+    return {
+        "message": f"Successfully checked in {data.license_plate} to Spot #{data.spot_id}",
+        "license_plate": data.license_plate
+    }
+
+@router.post("/parkings/checkout")
+def checkout_vehicle(data: CheckOutSchema, db: Session = Depends(get_db)):
+    parking = db.query(ActiveParking).filter(ActiveParking.license_plate == data.license_plate).first()
+    if not parking:
+        raise HTTPException(status_code=404, detail="Active parking session not found for this license plate.")
+
+    exit_time = datetime.utcnow()
+    hours = max(1.0, (exit_time - parking.entry_time).total_seconds() / 3600.0)
+    fee = round(hours * 10.0, 2)
+
+    audit = AuditLog(
+        license_plate=parking.license_plate,
+        spot_id=parking.spot_id,
+        entry_time=parking.entry_time,
+        exit_time=exit_time,
+        fee_charged=fee,
+        note="Normal Checkout"
+    )
+    db.add(audit)
+
+    spot = db.query(Spot).filter(Spot.spot_id == parking.spot_id).first()
+    if spot:
+        spot.is_occupied = False
+
+    db.delete(parking)
+    db.commit()
+
+    return {
+        "message": f"Vehicle {data.license_plate} checked out successfully.",
+        "fee_charged": fee
+    }
+
 @router.get("/parkings/search")
 def search_parkings(
     query: str = Query("", description="Search license plate"),
-    sort_by: str = Query("id", description="Field to sort"),
+    sort_by: str = Query("license_plate", description="Field to sort"),
     order: str = Query("asc", description="asc or desc"),
     page: int = Query(1, ge=1),
     limit: int = Query(5, ge=1),
     db: Session = Depends(get_db)
 ):
-    if not ModelClass:
-        return {"total": 0, "page": page, "limit": limit, "results": []}
-
-    db_query = db.query(ModelClass)
+    db_query = db.query(ActiveParking)
     
-    if query and hasattr(ModelClass, "license_plate"):
-        db_query = db_query.filter(ModelClass.license_plate.contains(query))
+    if query:
+        db_query = db_query.filter(ActiveParking.license_plate.contains(query))
     
-    sort_attr = getattr(ModelClass, sort_by, getattr(ModelClass, "id", None))
-    if sort_attr and order == "desc":
+    sort_attr = getattr(ActiveParking, sort_by, ActiveParking.license_plate)
+    if order == "desc":
         sort_attr = sort_attr.desc()
-    if sort_attr is not None:
-        db_query = db_query.order_by(sort_attr)
+    db_query = db_query.order_by(sort_attr)
     
     total = db_query.count()
     records = db_query.offset((page - 1) * limit).limit(limit).all()
     
-    results = []
-    for r in records:
-        results.append({
-            "id": getattr(r, "id", "N/A"),
-            "license_plate": getattr(r, "license_plate", getattr(r, "plate_number", "N/A")),
-            "spot_id": getattr(r, "spot_id", getattr(r, "spot_number", 1)),
-            "is_active": getattr(r, "is_active", True),
-            "fee_charged": getattr(r, "fee_charged", getattr(r, "fee", 0.0)) or 0.0
-        })
+    results = [
+        {
+            "id": r.spot_id,
+            "license_plate": r.license_plate,
+            "spot_id": r.spot_id,
+            "is_active": True,
+            "fee_charged": 0.0
+        }
+        for r in records
+    ]
     
     return {
         "total": total,

@@ -41,4 +41,4 @@ class AuditLog(Base):
     entry_time = Column(DateTime, nullable=False)
     exit_time = Column(DateTime, nullable=False)
     fee_charged = Column(Float, nullable=False)
-    note = Column(String, nullable=True) # e.g. "Auto-closed via nightly clock job"
+    note = Column(String, nullable=True)

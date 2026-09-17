@@ -45,19 +45,23 @@ def serve_dashboard():
             .info-card h4 { color: #38bdf8; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
             .info-card p { font-size: 0.9rem; color: #cbd5e1; }
 
-            /* Standard Section Cards */
+            /* Grid Layout for Forms */
+            .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; }
+
+            /* Cards & Headers */
             .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
             .card-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 16px; color: var(--text-main); }
 
-            /* Form Elements */
+            /* Forms & Inputs */
+            .form-group { display: flex; flex-direction: column; gap: 12px; }
             .form-inline { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
             input, select { padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
             input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+            
             .btn { background: var(--primary); color: white; padding: 10px 20px; border: none; border-radius: 8px; font-weight: 500; font-size: 0.9rem; cursor: pointer; transition: background 0.2s; }
             .btn:hover { background: var(--primary-dark); }
             .btn-outline { background: transparent; color: var(--text-main); border: 1px solid var(--border); }
             .btn-outline:hover { background: #f1f5f9; }
-            .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
             /* Table Styling */
             .table-container { overflow-x: auto; margin-top: 16px; }
@@ -71,7 +75,6 @@ def serve_dashboard():
             .badge-active { background: var(--success-bg); color: var(--success); }
             .badge-checkout { background: var(--warning-bg); color: var(--warning); }
 
-            /* Pagination Bar */
             .pagination-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
             .status-msg { margin-top: 12px; font-size: 0.875rem; font-weight: 500; }
         </style>
@@ -98,7 +101,31 @@ def serve_dashboard():
                 </div>
             </header>
 
-            <!-- AUTHENTICATION CARD -->
+            <!-- AUTH & OPERATIONS ROW -->
+            <div class="grid-2">
+                <!-- CHECK-IN / SPOT ALLOCATION CARD -->
+                <section class="card">
+                    <h2 class="card-title">🚗 Vehicle Check-In (Allocate Spot)</h2>
+                    <div class="form-group">
+                        <input id="checkinPlate" placeholder="Vehicle License Plate (e.g. ABC-1234)">
+                        <input id="checkinSpot" type="number" placeholder="Spot ID (e.g. 101)">
+                        <button class="btn" onclick="executeCheckIn()">Allocate Spot & Check In</button>
+                    </div>
+                    <div id="checkinStatus" class="status-msg"></div>
+                </section>
+
+                <!-- CHECK-OUT / FEE CALCULATION CARD -->
+                <section class="card">
+                    <h2 class="card-title">💳 Vehicle Check-Out</h2>
+                    <div class="form-group">
+                        <input id="checkoutPlate" placeholder="Vehicle License Plate to Check-Out">
+                        <button class="btn btn-outline" onclick="executeCheckOut()">Process Check-Out & Calculate Fee</button>
+                    </div>
+                    <div id="checkoutStatus" class="status-msg"></div>
+                </section>
+            </div>
+
+            <!-- OPERATOR AUTHENTICATION CARD -->
             <section class="card">
                 <h2 class="card-title">Operator Access</h2>
                 <div class="form-inline">
@@ -110,7 +137,7 @@ def serve_dashboard():
                 <div id="authStatus" class="status-msg"></div>
             </section>
 
-            <!-- SEARCH, SORT, PAGINATION TABLE -->
+            <!-- LIVE DASHBOARD TABLE -->
             <section class="card">
                 <h2 class="card-title">Live Parking Dashboard</h2>
                 <div class="form-inline" style="justify-content: space-between; margin-bottom: 16px;">
@@ -148,20 +175,78 @@ def serve_dashboard():
                     <button id="nextBtn" class="btn btn-outline" onclick="navigatePage(1)">Next</button>
                 </div>
             </section>
-
-            <!-- ROADMAP FOOTER -->
-            <footer class="card">
-                <h2 class="card-title">Product Roadmap (Next 3 Planned Features)</h2>
-                <ul style="padding-left: 20px; display: flex; flex-direction: column; gap: 10px; color: var(--text-muted); font-size: 0.95rem;">
-                    <li><strong style="color: var(--text-main);">1. Automatic License Plate Recognition (ANPR):</strong> Integration with AI video cameras for automated gate barriers.</li>
-                    <li><strong style="color: var(--text-main);">2. Integrated Payment Gateway:</strong> Stripe API integration for instant QR-code mobile payments.</li>
-                    <li><strong style="color: var(--text-main);">3. Real-Time EV Charging Telemetry:</strong> Track kilowatt-hour draw and automated charging fee billing.</li>
-                </ul>
-            </footer>
         </div>
 
         <script>
             let currentPage = 1;
+
+            async function executeCheckIn() {
+                const plate = document.getElementById('checkinPlate').value;
+                const spot = document.getElementById('checkinSpot').value;
+                const statusEl = document.getElementById('checkinStatus');
+
+                if (!plate || !spot) {
+                    statusEl.style.color = 'var(--warning)';
+                    statusEl.innerText = 'Please enter both license plate and spot ID.';
+                    return;
+                }
+
+                try {
+                    const res = await fetch('/parkings/checkin', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ license_plate: plate, spot_id: parseInt(spot) })
+                    });
+                    const data = await res.json();
+
+                    if (res.ok) {
+                        statusEl.style.color = 'var(--success)';
+                        statusEl.innerText = `Checked in ${plate} to Spot #${spot} successfully!`;
+                        document.getElementById('checkinPlate').value = '';
+                        document.getElementById('checkinSpot').value = '';
+                        fetchParkingData();
+                    } else {
+                        statusEl.style.color = 'var(--warning)';
+                        statusEl.innerText = data.detail || 'Check-in failed.';
+                    }
+                } catch (err) {
+                    statusEl.style.color = 'var(--warning)';
+                    statusEl.innerText = 'Error connecting to check-in endpoint.';
+                }
+            }
+
+            async function executeCheckOut() {
+                const plate = document.getElementById('checkoutPlate').value;
+                const statusEl = document.getElementById('checkoutStatus');
+
+                if (!plate) {
+                    statusEl.style.color = 'var(--warning)';
+                    statusEl.innerText = 'Please enter a license plate to checkout.';
+                    return;
+                }
+
+                try {
+                    const res = await fetch('/parkings/checkout', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ license_plate: plate })
+                    });
+                    const data = await res.json();
+
+                    if (res.ok) {
+                        statusEl.style.color = 'var(--success)';
+                        statusEl.innerText = `Checkout complete for ${plate}. Fee: $${Number(data.fee_charged || 0).toFixed(2)}`;
+                        document.getElementById('checkoutPlate').value = '';
+                        fetchParkingData();
+                    } else {
+                        statusEl.style.color = 'var(--warning)';
+                        statusEl.innerText = data.detail || 'Checkout failed.';
+                    }
+                } catch (err) {
+                    statusEl.style.color = 'var(--warning)';
+                    statusEl.innerText = 'Error connecting to checkout endpoint.';
+                }
+            }
 
             async function executeAuth(endpoint) {
                 const u = document.getElementById('username').value;
@@ -240,7 +325,6 @@ def serve_dashboard():
                 fetchParkingData();
             }
 
-            // Initial Load
             fetchParkingData();
         </script>
     </body>
